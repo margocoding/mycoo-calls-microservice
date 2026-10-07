@@ -42,6 +42,7 @@ export class RecordingsService {
     };
   }
   async transcribe(room: string, dto: TranscribeDto) {
+    const deadline = Date.now() + 17 * 60_000;
     const command = this.command(room, dto.key);
     if (dto.taskId) return this.speech.result(dto.taskId);
     if (dto.uploadId)
@@ -49,12 +50,13 @@ export class RecordingsService {
         uploadId: dto.uploadId,
         taskId: await this.speech.start(dto.uploadId),
       };
+    const format = this.speech.audioFormat;
     const base = resolve(tmpdir()),
       directory = await mkdtemp(join(base, "mycoo-recording-"));
     const client = this.client();
     try {
       const source = join(directory, "recording.mp4"),
-        audio = join(directory, "audio.flac");
+        audio = join(directory, "audio." + format);
       const object = await client.send(command, {
         abortSignal: AbortSignal.timeout(180_000),
       });
@@ -78,10 +80,13 @@ export class RecordingsService {
         createWriteStream(source),
         { signal: AbortSignal.timeout(180_000) },
       );
-      await convertAudio(source, audio);
+      await convertAudio(source, audio, format);
       if ((await stat(audio)).size > 1_000_000_000)
         throw new Error("Audio exceeds recognition limit");
-      return { uploadId: await this.speech.upload(audio) };
+      return await this.speech.transcribe(
+        audio,
+        Math.max(1, deadline - Date.now()),
+      );
     } finally {
       client.destroy();
       // Only remove the exact temporary directory we created inside the OS temp root.
@@ -91,7 +96,11 @@ export class RecordingsService {
   }
 }
 
-export async function convertAudio(source: string, output: string) {
+export async function convertAudio(
+  source: string,
+  output: string,
+  format: "ogg" | "flac" = "flac",
+) {
   await new Promise<void>((done, reject) => {
     const child = spawn(
       process.env.FFMPEG_PATH || "ffmpeg",
@@ -106,8 +115,9 @@ export async function convertAudio(source: string, output: string) {
         "1",
         "-ar",
         "16000",
-        "-c:a",
-        "flac",
+        ...(format === "ogg"
+          ? ["-c:a", "libopus", "-b:a", "16k", "-vbr", "off"]
+          : ["-c:a", "flac"]),
         "-y",
         output,
       ],

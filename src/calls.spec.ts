@@ -4,7 +4,11 @@ import { AccessToken, TrackSource, TokenVerifier } from "livekit-server-sdk";
 import { LivekitService } from "./livekit.service.js";
 import { ServiceGuard } from "./service.guard.js";
 import { RecordingsService } from "./recordings.service.js";
-import { SpeechService, transcriptText } from "./speech.service.js";
+import type { SpeechService } from "./speech.service.js";
+import {
+  SaluteSpeechService,
+  transcriptText,
+} from "./salute-speech.service.js";
 import type { ExecutionContext } from "@nestjs/common";
 
 afterEach(() => {
@@ -162,7 +166,7 @@ describe("SaluteSpeech REST contract", () => {
       .mockResolvedValueOnce(auth())
       .mockResolvedValueOnce(response({ id: "task1" }));
     vi.stubGlobal("fetch", fetch);
-    expect(await new SpeechService().start("upload1")).toBe("task1");
+    expect(await new SaluteSpeechService().start("upload1")).toBe("task1");
     expect(fetch).toHaveBeenCalledTimes(4);
     expect(JSON.parse(fetch.mock.calls[3][1].body)).toEqual({
       request_file_id: "upload1",
@@ -170,7 +174,7 @@ describe("SaluteSpeech REST contract", () => {
     });
   });
   it("downloads a completed task and does not expose provider credentials in errors", async () => {
-    const speech = new SpeechService();
+    const speech = new SaluteSpeechService();
     const request = vi
       .spyOn(speech, "request")
       .mockResolvedValueOnce({ status: "DONE", response_file_id: "result1" })
@@ -186,7 +190,7 @@ describe("SaluteSpeech REST contract", () => {
   it.each(["NEW", "RUNNING", "ERROR", "CANCELED"])(
     "handles task state %s",
     async (status) => {
-      const speech = new SpeechService();
+      const speech = new SaluteSpeechService();
       vi.spyOn(speech, "request").mockResolvedValue({ status });
       const result = await speech.result("task1");
       expect(result.failed).toBe(

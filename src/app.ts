@@ -24,6 +24,8 @@ import {
 } from "./calls.dto.js";
 import { RecordingsService } from "./recordings.service.js";
 import { SpeechService } from "./speech.service.js";
+import { SaluteSpeechService } from "./salute-speech.service.js";
+import { YandexSpeechService } from "./yandex-speech.service.js";
 
 @Controller("rooms/:room")
 @UseGuards(ServiceGuard)
@@ -85,6 +87,13 @@ class SystemController {
 }
 @Module({
   controllers: [CallsController, SystemController],
-  providers: [LivekitService, ServiceGuard, RecordingsService, SpeechService],
+  providers: [
+    LivekitService,
+    ServiceGuard,
+    RecordingsService,
+    SpeechService,
+    SaluteSpeechService,
+    YandexSpeechService,
+  ],
 })
 export class AppModule {}
