@@ -1,0 +1,4 @@
+# Verified false positives: the literal environment variable name/reference,
+# not credential values. Limit exceptions to these exact initial-commit findings.
+dbe92fced56c86ff9b8fcb8335259c35095b0ca6:src/recordings.service.ts:generic-api-key:25
+dbe92fced56c86ff9b8fcb8335259c35095b0ca6:.env.example:generic-api-key:16
