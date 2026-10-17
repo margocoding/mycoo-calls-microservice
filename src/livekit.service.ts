@@ -3,6 +3,7 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
+import { ParticipantInfo_Kind } from "@livekit/protocol";
 import {
   AccessToken,
   EgressClient,
@@ -169,6 +170,13 @@ export class LivekitService {
       .catch(() => {
         throw new UnauthorizedException("Invalid LiveKit signature");
       });
+    // LiveKit's recorder joins as a service participant, not a workspace user.
+    // Only trust its kind after verifying the webhook signature and body hash.
+    if (
+      event.event === "participant_joined" &&
+      event.participant?.kind === ParticipantInfo_Kind.EGRESS
+    )
+      return { ok: true };
     const url = process.env.MYCOO_EVENTS_URL;
     if (!url)
       throw new ServiceUnavailableException("Event receiver is not configured");

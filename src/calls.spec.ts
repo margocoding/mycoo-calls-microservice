@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccessToken, TrackSource, TokenVerifier } from "livekit-server-sdk";
 import { LivekitService } from "./livekit.service.js";
@@ -106,6 +107,58 @@ describe("Internal calls API", () => {
     await expect(
       new LivekitService().event("{}", await token.toJwt()),
     ).rejects.toThrow("Invalid LiveKit signature");
+  });
+  it("keeps a verified Egress recorder out of workspace membership enforcement", async () => {
+    vi.stubEnv("LIVEKIT_URL", "http://localhost");
+    vi.stubEnv("LIVEKIT_API_KEY", "key");
+    vi.stubEnv("LIVEKIT_API_SECRET", "secret");
+    vi.stubEnv("MYCOO_EVENTS_URL", "http://api/meetings/events");
+    const fetch = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetch);
+    const body = JSON.stringify({
+      event: "participant_joined",
+      room: { name: "meeting_one" },
+      participant: { identity: "recorder-service", kind: "EGRESS" },
+    });
+    const token = new AccessToken("key", "secret");
+    token.sha256 = createHash("sha256").update(body).digest("base64");
+    await expect(new LivekitService().event(body, await token.toJwt())).resolves.toEqual({ ok: true });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each([undefined, "STANDARD"])(
+    "still forwards user joins with an Egress-like identity and kind %s",
+    async (kind) => {
+      vi.stubEnv("LIVEKIT_URL", "http://localhost");
+      vi.stubEnv("LIVEKIT_API_KEY", "key");
+      vi.stubEnv("LIVEKIT_API_SECRET", "secret");
+      vi.stubEnv("MYCOO_EVENTS_URL", "http://api/meetings/events");
+      vi.stubEnv("CALLS_SERVICE_SECRET", "s".repeat(40));
+      const fetch = vi.fn().mockResolvedValue(new Response("{}"));
+      vi.stubGlobal("fetch", fetch);
+      const body = JSON.stringify({
+        id: "EV_test", event: "participant_joined",
+        room: { name: "meeting_one" },
+        participant: { identity: "EG_not_a_recorder", kind },
+      });
+      const token = new AccessToken("key", "secret");
+      token.sha256 = createHash("sha256").update(body).digest("base64");
+      await new LivekitService().event(body, await token.toJwt());
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+        id: "EV_test", event: "participant_joined",
+        room: "meeting_one", identity: "EG_not_a_recorder",
+      });
+    },
+  );
+  it("does not exempt an unverified webhook claiming to be an Egress recorder", async () => {
+    vi.stubEnv("LIVEKIT_URL", "http://localhost");
+    vi.stubEnv("LIVEKIT_API_KEY", "key");
+    vi.stubEnv("LIVEKIT_API_SECRET", "secret");
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const body = JSON.stringify({ event: "participant_joined", participant: { kind: "EGRESS" } });
+    await expect(new LivekitService().event(body, "invalid")).rejects.toThrow("Invalid LiveKit signature");
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 describe("Private recordings and durable recognition", () => {
