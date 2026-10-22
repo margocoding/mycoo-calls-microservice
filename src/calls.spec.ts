@@ -163,6 +163,31 @@ describe("Internal calls API", () => {
 });
 describe("Private recordings and durable recognition", () => {
   const speech = { result: vi.fn(), start: vi.fn(), upload: vi.fn() };
+  it.each(["https://media.example.com", ""])(
+    "signs a five-minute playback URL using the configured public host (%s)",
+    async (publicEndpoint) => {
+      vi.stubEnv("RECORDINGS_S3_ENDPOINT", "http://minio:9000");
+      vi.stubEnv("RECORDINGS_S3_PUBLIC_ENDPOINT", publicEndpoint);
+      vi.stubEnv("RECORDINGS_S3_REGION", "us-east-1");
+      vi.stubEnv("RECORDINGS_S3_BUCKET", "calls");
+      vi.stubEnv("RECORDINGS_S3_ACCESS_KEY", "test-access");
+      vi.stubEnv("RECORDINGS_S3_SECRET_KEY", "test-secret-for-signing");
+      const store = new RecordingsService(speech as unknown as SpeechService);
+      const signed = new URL((await store.url("meeting_one", "meetings/meeting_one/a.mp4")).url);
+      expect(signed.origin).toBe(publicEndpoint || "http://minio:9000");
+      expect(signed.pathname).toBe("/calls/meetings/meeting_one/a.mp4");
+      expect(signed.searchParams.get("X-Amz-Expires")).toBe("300");
+      expect(signed.searchParams.get("X-Amz-SignedHeaders")).toBe("host");
+      expect(signed.searchParams.get("X-Amz-Signature")).toMatch(/^[a-f0-9]{64}$/);
+      const internal = store.client();
+      try {
+        expect((await internal.config.endpoint!()).hostname).toBe("minio");
+      } finally {
+        internal.destroy();
+      }
+      await expect(store.url("meeting_one", "meetings/meeting_other/a.mp4")).rejects.toThrow("Invalid recording key");
+    },
+  );
   it("rejects another meeting recording and path traversal before accessing storage", async () => {
     const store = new RecordingsService(speech as unknown as SpeechService);
     for (const key of [
