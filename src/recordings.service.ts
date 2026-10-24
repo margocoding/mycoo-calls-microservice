@@ -14,10 +14,10 @@ import type { TranscribeDto } from "./calls.dto.js";
 @Injectable()
 export class RecordingsService {
   constructor(private readonly speech: SpeechService) {}
-  client() {
+  client(endpoint = process.env.RECORDINGS_S3_ENDPOINT) {
     const e = process.env;
     return new S3Client({
-      endpoint: e.RECORDINGS_S3_ENDPOINT || undefined,
+      endpoint: endpoint || undefined,
       region: e.RECORDINGS_S3_REGION || "us-east-1",
       forcePathStyle: true,
       credentials: {
@@ -35,11 +35,18 @@ export class RecordingsService {
     });
   }
   async url(room: string, key: string) {
-    return {
-      url: await getSignedUrl(this.client(), this.command(room, key), {
-        expiresIn: 300,
-      }),
-    };
+    const command = this.command(room, key);
+    // Sign against the browser-facing host; changing a signed URL afterwards
+    // invalidates its signature. Uploads and recognition keep the internal host.
+    const client = this.client(
+      process.env.RECORDINGS_S3_PUBLIC_ENDPOINT ||
+        process.env.RECORDINGS_S3_ENDPOINT,
+    );
+    try {
+      return { url: await getSignedUrl(client, command, { expiresIn: 300 }) };
+    } finally {
+      client.destroy();
+    }
   }
   async transcribe(room: string, dto: TranscribeDto) {
     const deadline = Date.now() + 17 * 60_000;
