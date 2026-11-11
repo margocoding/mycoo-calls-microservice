@@ -18,6 +18,8 @@ import { LivekitService } from "./livekit.service.js";
 import {
   ParticipantDto,
   RecordingKeyDto,
+  RecordingStartDto,
+  RecordingStopDto,
   RoomParams,
   TokenDto,
   TranscribeDto,
@@ -52,11 +54,17 @@ class CallsController {
   @Get("recordings") recordings(@Param() p: RoomParams) {
     return this.livekit.recordings(p.room);
   }
-  @Post("recordings") start(@Param() p: RoomParams) {
-    return this.livekit.startRecording(p.room);
+  @Post("recordings") start(
+    @Param() p: RoomParams,
+    @Body() dto: RecordingStartDto,
+  ) {
+    return this.livekit.startRecording(p.room, dto.recordingId);
   }
-  @Post("recordings/stop") stop(@Param() p: RoomParams) {
-    return this.livekit.stopRecording(p.room);
+  @Post("recordings/stop") stop(
+    @Param() p: RoomParams,
+    @Body() dto: RecordingStopDto,
+  ) {
+    return this.livekit.stopRecording(p.room, dto.egressId);
   }
   @Post("recordings/url") url(
     @Param() p: RoomParams,

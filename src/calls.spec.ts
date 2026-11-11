@@ -122,7 +122,9 @@ describe("Internal calls API", () => {
     });
     const token = new AccessToken("key", "secret");
     token.sha256 = createHash("sha256").update(body).digest("base64");
-    await expect(new LivekitService().event(body, await token.toJwt())).resolves.toEqual({ ok: true });
+    await expect(
+      new LivekitService().event(body, await token.toJwt()),
+    ).resolves.toEqual({ ok: true });
     expect(fetch).not.toHaveBeenCalled();
   });
   it.each([undefined, "STANDARD"])(
@@ -136,7 +138,8 @@ describe("Internal calls API", () => {
       const fetch = vi.fn().mockResolvedValue(new Response("{}"));
       vi.stubGlobal("fetch", fetch);
       const body = JSON.stringify({
-        id: "EV_test", event: "participant_joined",
+        id: "EV_test",
+        event: "participant_joined",
         room: { name: "meeting_one" },
         participant: { identity: "EG_not_a_recorder", kind },
       });
@@ -145,8 +148,10 @@ describe("Internal calls API", () => {
       await new LivekitService().event(body, await token.toJwt());
       expect(fetch).toHaveBeenCalledOnce();
       expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
-        id: "EV_test", event: "participant_joined",
-        room: "meeting_one", identity: "EG_not_a_recorder",
+        id: "EV_test",
+        event: "participant_joined",
+        room: "meeting_one",
+        identity: "EG_not_a_recorder",
       });
     },
   );
@@ -156,12 +161,58 @@ describe("Internal calls API", () => {
     vi.stubEnv("LIVEKIT_API_SECRET", "secret");
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
-    const body = JSON.stringify({ event: "participant_joined", participant: { kind: "EGRESS" } });
-    await expect(new LivekitService().event(body, "invalid")).rejects.toThrow("Invalid LiveKit signature");
+    const body = JSON.stringify({
+      event: "participant_joined",
+      participant: { kind: "EGRESS" },
+    });
+    await expect(new LivekitService().event(body, "invalid")).rejects.toThrow(
+      "Invalid LiveKit signature",
+    );
     expect(fetch).not.toHaveBeenCalled();
   });
 });
 describe("Private recordings and durable recognition", () => {
+  it("reuses the same segment after a lost response, including a completed segment", async () => {
+    const service = new LivekitService();
+    const existing = {
+      id: "EG_one",
+      recordingId: "fragment1",
+      status: 3,
+      error: null,
+      files: [],
+    };
+    vi.spyOn(service, "recordings").mockResolvedValue([existing]);
+    const start = vi.fn();
+    vi.spyOn(service as any, "egress").mockReturnValue({
+      startRoomCompositeEgress: start,
+    });
+    expect(await service.startRecording("meeting_one", "fragment1")).toEqual(
+      existing,
+    );
+    expect(start).not.toHaveBeenCalled();
+  });
+  it("does not reuse another active fragment as a new recording", async () => {
+    const service = new LivekitService();
+    vi.spyOn(service, "recordings").mockResolvedValue([
+      { id: "EG_old", recordingId: "old", status: 2, error: null, files: [] },
+    ]);
+    await expect(
+      service.startRecording("meeting_one", "new"),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+  it("stops only the requested Egress, never a newer fragment", async () => {
+    const service = new LivekitService();
+    const stop = vi.fn();
+    vi.spyOn(service as any, "egress").mockReturnValue({ stopEgress: stop });
+    vi.spyOn(service, "recordings").mockResolvedValue([
+      { id: "EG_old", recordingId: "old", status: 3, error: null, files: [] },
+      { id: "EG_new", recordingId: "new", status: 1, error: null, files: [] },
+    ]);
+    await service.stopRecording("meeting_one", "EG_old");
+    expect(stop).not.toHaveBeenCalled();
+    await service.stopRecording("meeting_one", "EG_new");
+    expect(stop).toHaveBeenCalledExactlyOnceWith("EG_new");
+  });
   const speech = { result: vi.fn(), start: vi.fn(), upload: vi.fn() };
   it.each(["https://media.example.com", ""])(
     "signs a five-minute playback URL using the configured public host (%s)",
@@ -173,19 +224,25 @@ describe("Private recordings and durable recognition", () => {
       vi.stubEnv("RECORDINGS_S3_ACCESS_KEY", "test-access");
       vi.stubEnv("RECORDINGS_S3_SECRET_KEY", "test-secret-for-signing");
       const store = new RecordingsService(speech as unknown as SpeechService);
-      const signed = new URL((await store.url("meeting_one", "meetings/meeting_one/a.mp4")).url);
+      const signed = new URL(
+        (await store.url("meeting_one", "meetings/meeting_one/a.mp4")).url,
+      );
       expect(signed.origin).toBe(publicEndpoint || "http://minio:9000");
       expect(signed.pathname).toBe("/calls/meetings/meeting_one/a.mp4");
       expect(signed.searchParams.get("X-Amz-Expires")).toBe("300");
       expect(signed.searchParams.get("X-Amz-SignedHeaders")).toBe("host");
-      expect(signed.searchParams.get("X-Amz-Signature")).toMatch(/^[a-f0-9]{64}$/);
+      expect(signed.searchParams.get("X-Amz-Signature")).toMatch(
+        /^[a-f0-9]{64}$/,
+      );
       const internal = store.client();
       try {
         expect((await internal.config.endpoint!()).hostname).toBe("minio");
       } finally {
         internal.destroy();
       }
-      await expect(store.url("meeting_one", "meetings/meeting_other/a.mp4")).rejects.toThrow("Invalid recording key");
+      await expect(
+        store.url("meeting_one", "meetings/meeting_other/a.mp4"),
+      ).rejects.toThrow("Invalid recording key");
     },
   );
   it("rejects another meeting recording and path traversal before accessing storage", async () => {
