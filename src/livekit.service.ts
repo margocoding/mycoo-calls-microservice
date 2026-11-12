@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Injectable,
   ServiceUnavailableException,
   UnauthorizedException,
@@ -115,6 +116,10 @@ export class LivekitService {
     return (await this.egress().listEgress({ roomName: room })).map((e) => ({
       id: e.egressId,
       status: e.status,
+      recordingId: (e.request.case === "roomComposite"
+        ? e.request.value.fileOutputs[0]?.filepath
+        : e.fileResults[0]?.filename
+      )?.match(/\/segment_([a-zA-Z0-9_-]+)\.mp4$/)?.[1],
       error: e.error ? "Recording failed" : null,
       files: e.fileResults.map((f) => ({
         filename: f.filename,
@@ -122,11 +127,17 @@ export class LivekitService {
       })),
     }));
   }
-  async startRecording(room: string) {
-    const active = (await this.recordings(room)).find((e) =>
-      [0, 1, 2].includes(e.status),
-    );
-    if (active) return active;
+  async startRecording(room: string, recordingId?: string) {
+    const recordings = await this.recordings(room);
+    const existing =
+      recordingId && recordings.find((e) => e.recordingId === recordingId);
+    if (existing) return existing;
+    const active = recordings.find((e) => [0, 1, 2].includes(e.status));
+    if (active) {
+      if (recordingId)
+        throw new ConflictException("Previous recording is still finishing");
+      return active;
+    }
     const env = process.env;
     if (
       !env.RECORDINGS_S3_BUCKET ||
@@ -138,7 +149,10 @@ export class LivekitService {
       );
     const output = new EncodedFileOutput({
       fileType: EncodedFileType.MP4,
-      filepath: "meetings/" + room + "/{time}.mp4",
+      filepath:
+        "meetings/" +
+        room +
+        (recordingId ? "/segment_" + recordingId + ".mp4" : "/{time}.mp4"),
       output: {
         case: "s3",
         value: new S3Upload({
@@ -158,9 +172,10 @@ export class LivekitService {
     );
     return { id: result.egressId, status: result.status };
   }
-  async stopRecording(room: string) {
+  async stopRecording(room: string, egressId?: string) {
     for (const e of await this.recordings(room))
-      if ([0, 1].includes(e.status)) await this.egress().stopEgress(e.id);
+      if ((!egressId || e.id === egressId) && [0, 1].includes(e.status))
+        await this.egress().stopEgress(e.id);
     return this.recordings(room);
   }
   async event(body: string, authorization?: string) {
