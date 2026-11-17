@@ -29,6 +29,8 @@ export class SpeechService {
     return provider;
   }
 
+  get providerName() { return this.provider(); }
+
   get audioFormat(): "ogg" | "flac" {
     if (this.provider() === "yandex") {
       this.yandex.assertConfigured();

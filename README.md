@@ -25,6 +25,14 @@ For recording set all `RECORDINGS_S3_*` settings and configure an Egress worker 
 
 ## Speech provider
 
+### Resource limits
+
+The main API checks subscription capacity before recording or recognizing audio. `POST /rooms/:room/recordings/info` returns private storage metadata and the configured speech provider; it does not start recognition. The transcription request may include `maxAudioSeconds` and `expectedProvider`. A provider change or audio longer than the reserved allowance is rejected before a new paid recognition request; polling an existing task remains available.
+
+Apply [the Egress session limits](docs/egress-usage-limits.yaml) to the separately deployed recorder before enabling storage quotas. The main API reserves 2 GB per active fragment and replaces this with the real size on completion. It also requests a stop after four hours, but a hard size/duration boundary during API outages must be enforced by Egress itself. The supplied limits leave headroom below 2 GB and SpeechKit's four-hour maximum. Use a release that supports `file_output_max_size`; see [Egress configuration](https://github.com/livekit/egress/blob/main/README.md). Status `EGRESS_LIMIT_REACHED` still produces a saved fragment. Existing recordings are inspected in the background by the main API.
+
+### Provider credentials
+
 Set `SPEECH_PROVIDER=yandex` to use asynchronous SpeechKit API v3. This is a paid cloud service; no local speech model or GPU is required.
 
 1. Activate a Yandex Cloud billing account (`ACTIVE` or `TRIAL_ACTIVE`) and link the service account's cloud to it. Create a service account with the `ai.speechkit-stt.user` role in its folder.

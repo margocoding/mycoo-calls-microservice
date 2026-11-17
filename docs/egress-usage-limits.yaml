@@ -1,0 +1,6 @@
+# Merge this section into the deployed LiveKit Egress configuration.
+# Main API reserves 2 GB for each active recording. Leave headroom for finalizing
+# the MP4 and for checking the limit. Use an Egress release supporting both keys.
+session_limits:
+  file_output_max_size: 1900000000
+  file_output_max_duration: 3h59m
