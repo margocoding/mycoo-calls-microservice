@@ -78,6 +78,9 @@ class CallsController {
   ) {
     return this.recordingsStore.transcribe(p.room, body);
   }
+  @Post("recordings/info") info(@Param() p: RoomParams, @Body() body: RecordingKeyDto) {
+    return this.recordingsStore.info(p.room, body.key);
+  }
 }
 @Controller()
 class SystemController {
