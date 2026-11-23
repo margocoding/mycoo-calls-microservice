@@ -1,6 +1,6 @@
 # MyCOO calls
 
-Private NestJS gateway for self-hosted LiveKit with cloud Yandex SpeechKit or SaluteSpeech recognition. Meeting records, permissions, invitations, the processing queue and approved tasks live in `mycoo-crm-api`. The browser receives only a short room token, never service credentials.
+Private NestJS gateway for self-hosted LiveKit with cloud Yandex SpeechKit or SaluteSpeech recognition. Meeting records, permissions, invitations, the processing queue and approved tasks live in `mycoo-crm-api`. The browser receives only a room-scoped token, never service credentials.
 
 ## Run
 
@@ -17,7 +17,7 @@ Configure `CALLS_SERVICE_SECRET` with the same random value of at least 32 chara
 
 Set `LIVEKIT_URL` to the server API endpoint and `LIVEKIT_PUBLIC_URL` to the browser-reachable WebSocket endpoint (`wss://` in production). Use the same LiveKit API key/secret for this gateway and Egress. Configure LiveKit's signed webhook destination as `https://<calls-host>/webhooks/livekit`; `MYCOO_EVENTS_URL` must point to the main API's private `/api/meetings/events` endpoint. The root certificate in `certs/` is the public CA copied from the main API; TLS verification stays enabled. Node must receive `NODE_EXTRA_CA_CERTS` before startup.
 
-Expose `/health` and `/webhooks/livekit` through the calls proxy. Keep `/rooms/*` private to the main API. Do not enable remote unmute in LiveKit. This gateway issues 60-second join tokens without room-admin grants; a signed join webhook rechecks membership, admission and meeting status and removes unauthorized reconnects. Self-hosted LiveKit does not revoke previously issued JWTs: keep the webhook reachable and monitor delivery failures. A very short reconnect window can exist before this check completes.
+Expose `/health` and `/webhooks/livekit` through the calls proxy. Keep `/rooms/*` private to the main API. Do not enable remote unmute in LiveKit. This gateway issues join tokens valid for exactly 24 hours from issuance for both members and guests, without room-admin grants. Existing tokens keep their original expiry; leave and rejoin after deployment to obtain the new lifetime. A signed join webhook rechecks membership, admission and meeting status and removes unauthorized reconnects. Self-hosted LiveKit does not revoke previously issued JWTs: keep the webhook reachable and monitor delivery failures. A very short reconnect window can exist before this check completes. Guest application sessions separately expire 24 hours after the guest session was created.
 
 Egress joins the room as a service participant. After verifying the webhook signature and payload hash, this gateway excludes `participant_joined` events whose participant kind is `EGRESS` from workspace membership checks. Without this distinction, the main API removes the recorder as an unknown user and recording aborts with `Start signal not received` / `End reason: Source closed`. Ordinary participant joins still undergo the membership check, including identities beginning with `EG_`.
 

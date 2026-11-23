@@ -57,7 +57,7 @@ export class LivekitService {
     const token = new AccessToken(c.key, c.secret, {
       identity: dto.identity,
       name: dto.name,
-      ttl: 60,
+      ttl: 24 * 60 * 60,
     });
     token.addGrant({
       room,

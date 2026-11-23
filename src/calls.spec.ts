@@ -13,6 +13,7 @@ import {
 import type { ExecutionContext } from "@nestjs/common";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -33,7 +34,10 @@ describe("Internal calls API", () => {
     vi.stubEnv("CALLS_SERVICE_SECRET", "short");
     expect(() => guard.canActivate(ctx("Bearer short"))).toThrow();
   });
-  it("issues a short room-scoped token without room administration or screen share", async () => {
+  it.each(["user1", "guest_test"])("issues a room-scoped token valid for exactly 24 hours for %s", async (identity) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const issuedAt = new Date("2026-11-22T10:00:00.000Z");
+    vi.setSystemTime(issuedAt);
     vi.stubEnv("LIVEKIT_URL", "http://127.0.0.1:7880");
     vi.stubEnv("LIVEKIT_API_KEY", "local-key");
     vi.stubEnv("LIVEKIT_API_SECRET", "local-secret-for-tests");
@@ -42,22 +46,26 @@ describe("Internal calls API", () => {
       createRoom: vi.fn().mockResolvedValue({}),
     });
     const { token } = await service.token("meeting_one", {
-      identity: "user1",
+      identity,
       name: "Иван",
       screenShare: false,
     });
-    const claims = await new TokenVerifier(
+    const verifier = new TokenVerifier(
       "local-key",
       "local-secret-for-tests",
-    ).verify(token);
-    expect(claims.sub).toBe("user1");
+    );
+    const claims = await verifier.verify(token, 0);
+    expect(claims.sub).toBe(identity);
     expect(claims.video?.room).toBe("meeting_one");
     expect(claims.video?.roomAdmin).toBeUndefined();
     expect(claims.video?.canPublishSources).not.toContain("screen_share");
-    expect(claims.exp! - Math.floor(Date.now() / 1000)).toBeGreaterThanOrEqual(
-      59,
-    );
-    expect(claims.exp! - Math.floor(Date.now() / 1000)).toBeLessThanOrEqual(60);
+    expect(claims.exp! - claims.nbf!).toBe(86_400);
+    for (const elapsedSeconds of [3 * 3600, 86_399]) {
+      vi.setSystemTime(issuedAt.getTime() + elapsedSeconds * 1000);
+      await expect(verifier.verify(token, 0)).resolves.toMatchObject({ sub: identity });
+    }
+    vi.setSystemTime(issuedAt.getTime() + 86_400_000);
+    await expect(verifier.verify(token, 0)).rejects.toMatchObject({ code: "ERR_JWT_EXPIRED" });
   });
   it("only mutes microphones and never remotely unmutes", async () => {
     const service = new LivekitService(),
