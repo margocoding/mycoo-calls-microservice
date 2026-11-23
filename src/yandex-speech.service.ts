@@ -129,7 +129,7 @@ export class YandexSpeechService {
   }
 }
 
-async function audioDuration(path: string): Promise<number> {
+export async function audioDuration(path: string): Promise<number> {
   return new Promise((resolve, reject) => {
     execFile(
       process.env.FFPROBE_PATH || "ffprobe",

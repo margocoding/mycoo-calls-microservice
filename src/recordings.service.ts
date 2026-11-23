@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
-import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
+import { GetObjectCommand, HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
@@ -10,6 +10,7 @@ import { pipeline } from "node:stream/promises";
 import { Transform, type Readable } from "node:stream";
 import { SpeechService } from "./speech.service.js";
 import type { TranscribeDto } from "./calls.dto.js";
+import { audioDuration } from "./yandex-speech.service.js";
 
 @Injectable()
 export class RecordingsService {
@@ -48,10 +49,26 @@ export class RecordingsService {
       client.destroy();
     }
   }
+  async info(room: string, key: string) {
+    const command = this.command(room, key);
+    const client = this.client();
+    try {
+      const object = await client.send(new HeadObjectCommand(command.input), { abortSignal: AbortSignal.timeout(15_000) });
+      const sizeBytes = object.ContentLength;
+      if (!Number.isSafeInteger(sizeBytes) || !sizeBytes || sizeBytes < 0) throw new Error('Recording size unavailable');
+      const url = await getSignedUrl(client, command, { expiresIn: 120 });
+      const duration = await audioDuration(url);
+      if (!Number.isFinite(duration) || duration <= 0) throw new Error('Recording duration unavailable');
+      return { sizeBytes, audioSeconds: Math.ceil(duration), provider: this.speech.providerName };
+    } finally { client.destroy(); }
+  }
+
   async transcribe(room: string, dto: TranscribeDto) {
     const deadline = Date.now() + 17 * 60_000;
     const command = this.command(room, dto.key);
     if (dto.taskId) return this.speech.result(dto.taskId);
+    if (dto.expectedProvider && dto.expectedProvider !== (dto.uploadId ? 'salute' : this.speech.providerName))
+      throw new ForbiddenException('Speech provider changed; request a new budget reservation');
     if (dto.uploadId)
       return {
         uploadId: dto.uploadId,
@@ -88,6 +105,8 @@ export class RecordingsService {
         { signal: AbortSignal.timeout(180_000) },
       );
       await convertAudio(source, audio, format);
+      if (dto.maxAudioSeconds !== undefined && Math.ceil(await audioDuration(audio)) > dto.maxAudioSeconds)
+        throw new ForbiddenException('Audio exceeds the reserved recognition limit');
       if ((await stat(audio)).size > 1_000_000_000)
         throw new Error("Audio exceeds recognition limit");
       return await this.speech.transcribe(

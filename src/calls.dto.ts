@@ -2,6 +2,9 @@ import {
   IsBoolean,
   IsIn,
   IsOptional,
+  IsInt,
+  Min,
+  Max,
   IsString,
   Length,
   Matches,
@@ -30,6 +33,8 @@ export class RecordingStopDto {
   @IsOptional() @Matches(/^[a-zA-Z0-9_-]{1,100}$/) egressId?: string;
 }
 export class TranscribeDto extends RecordingKeyDto {
+  @IsOptional() @IsInt() @Min(1) @Max(14400) maxAudioSeconds?: number;
+  @IsOptional() @IsIn(["yandex", "salute"]) expectedProvider?: string;
   @IsOptional() @Matches(/^[a-zA-Z0-9_-]{1,200}$/) uploadId?: string;
   @IsOptional() @Matches(/^[a-zA-Z0-9_-]{1,200}$/) taskId?: string;
 }
